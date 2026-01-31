@@ -33,9 +33,63 @@ function App() {
   //   // Process the uploaded file here (logic)
   // };
 
+  const [selectedFile, setSelectedFile] = useState(null)
+
   useEffect(() => {
     fetchHistory()
   }, [pagination.page, pagination.limit])
+
+  const downloadCSVTemplate = () => {
+    const csvContent = "original_url\nhttps://example.com"
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    
+    if (link.download !== undefined) {
+      const url = URL.createObjectURL(blob)
+      link.setAttribute('href', url)
+      link.setAttribute('download', 'url-shortener-template.csv')
+      link.style.visibility = 'hidden'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    }
+  }
+
+  const handleFileChange = (event) => {
+    const file = event.target.files[0]
+    if (file && file.type === 'text/csv') {
+      setSelectedFile(file)
+    } else {
+      alert('Please select a valid CSV file.')
+      event.target.value = ''
+      setSelectedFile(null)
+    }
+  }
+
+  const parseCSV = (csvText) => {
+    const lines = csvText.split('\n')
+    const headers = lines[0].split(',').map(header => header.trim().toLowerCase())
+    
+    if (!headers.includes('original_url')) {
+      throw new Error('CSV file must contain "original_url" column')
+    }
+    
+    const originalUrlIndex = headers.indexOf('original_url')
+    const urls = []
+    
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim()
+      if (line) {
+        const values = line.split(',')
+        const url = values[originalUrlIndex]?.trim()
+        if (url && url !== 'original_url') {
+          urls.push(url)
+        }
+      }
+    }
+    
+    return urls
+  }
 
   const fetchHistory = async () => {
     try {
@@ -78,19 +132,65 @@ function App() {
 
   const createMultipleShortUrl = async (e) => {
     e.preventDefault()
-    if (!formData.original_url.trim()) return
+    
+    if (!selectedFile) {
+      alert('Please select a CSV file first.')
+      return
+    }
     
     setLoading(true)
+    
     try {
-      const response = await axios.post(`${API_URL}/multiple-url-shortener/`, {
-        original_url: formData.original_url
+      const fileContent = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = (e) => resolve(e.target.result)
+        reader.onerror = (e) => reject(e)
+        reader.readAsText(selectedFile)
       })
-      setUrls([response.data, ...urls])
-      setFormData({ original_url: '' })
-      fetchHistory()
+      
+      const urlsFromCSV = parseCSV(fileContent)
+      
+      if (urlsFromCSV.length === 0) {
+        alert('No valid URLs found in the CSV file.')
+        return
+      }
+      
+      const successfulUrls = []
+      const failedUrls = []
+      
+      for (const url of urlsFromCSV) {
+        try {
+          const response = await axios.post(`${API_URL}/url-shortener/`, {
+            original_url: url
+          })
+          successfulUrls.push(response.data)
+        } catch (error) {
+          console.error(`Failed to shorten URL: ${url}`, error)
+          failedUrls.push(url)
+        }
+      }
+      
+      if (successfulUrls.length > 0) {
+        setUrls([...successfulUrls, ...urls])
+        fetchHistory()
+      }
+      
+      if (failedUrls.length > 0) {
+        alert(`Successfully shortened ${successfulUrls.length} URLs. Failed to shorten ${failedUrls.length} URLs.`)
+      } else {
+        alert(`Successfully shortened all ${successfulUrls.length} URLs!`)
+      }
+      
+      setSelectedFile(null)
+      
+      const fileInput = document.getElementById('myfile')
+      if (fileInput) {
+        fileInput.value = ''
+      }
+      
     } catch (error) {
-      console.error('Error creating short URL:', error)
-      alert('Failed to shorten URL. Please try again.')
+      console.error('Error processing CSV file:', error)
+      alert('Failed to process CSV file. Please check the format and try again.')
     } finally {
       setLoading(false)
     }
@@ -212,9 +312,7 @@ function App() {
                           <div className='w-full lg:w-auto text-center'>
                             <Button
                               type="secondary"
-                              as="a"
-                              href=""
-                              download
+                              onClick={downloadCSVTemplate}
                               className='!w-full lg:w-auto !text-center'
                             >
                               <div className='text-center w-full'>
@@ -231,36 +329,33 @@ function App() {
                             <p className='w-full flex align-center p-body1 text-left'>Upload filled .csv file and click "Shorten URL"</p>
                           </div>
 
-                          <input 
-                            type="file"
-                            placeholder='Upload or drop a .csv file here'
-                            id='myfile'
-                            name='myfile'
-                            accept='.csv'
-                            className='flex-1 w-auto p-[10px] rounded-[5px] border border-[var(--color-border)]' 
-                          />
-
-                          {/* <div className='w-full flex flex-col space-y-[10px] lg:flex-row lg:space-x-[10px]'>
-                            <FileUploader
-                              handleChange={handleFileChange}
-                              name="file"
-                              types={fileTypes}
-                              className="!w-full"
-                              label='Upload or drop a .csv file here'
-                              multiple={false}
+                          <div className='flex flex-col space-y-[5px]'>
+                            <input 
+                              type="file"
+                              placeholder='Upload or drop a .csv file here'
+                              id='myfile'
+                              name='myfile'
+                              accept='.csv'
+                              onChange={handleFileChange}
+                              className='flex-1 w-auto p-[10px] rounded-[5px] border border-[var(--color-border)]' 
                             />
-                          </div> */}
+                            {selectedFile && (
+                              <p className='p-body2 text-[var(--color-text-secondary)]'>
+                                Selected: {selectedFile.name}
+                              </p>
+                            )}
+                          </div>
                         </div>
 
                         <div className='w-full lg:w-auto'>
                           <Button
                             type="primary"
                             onClick={createMultipleShortUrl}
-                            disabled={loading}
+                            disabled={loading || !selectedFile}
                             className='!w-full !text-center'
                           >
                             <div className='w-full'>
-                              {loading ? 'Shortening...' : 'Shorten URL'}
+                              {loading ? 'Processing...' : 'Shorten URLs'}
                             </div>
                           </Button>
                         </div>
