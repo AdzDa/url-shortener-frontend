@@ -211,7 +211,9 @@ function App() {
                   <tbody className=''>
                     {}
                     {/* {dummyData[0].items.map((item) => ( */}
-                    {urls.map((item) => (
+                    {urls
+                    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+                    .map((item) => (
                       <tr key={item.id} className='border-t border-[var(--color-border)]'>
                         <td className='p-[10px]'>
                           <p className='p-body1 text-[var(--color-text)] truncate max-w-[400px]'>
